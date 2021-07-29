@@ -22,7 +22,7 @@ cron.schedule("* * * * *", async () => {
     if(!isRunning) {
         isRunning = true;
         try {
-            let [rows, fields] = await pool.query("SELECT txId, blockId FROM eosTransactions WHERE `status` = ?", ['pending']);
+            let [rows, fields] = await pool.query("SELECT txid, blockid FROM eosTransactions WHERE `status` = ?", ['pending']);
             for(let i = 0; i < rows.length; i ++) {
                 try {
                     let tx = await rpc.history_get_transaction(rows[i].txId, rows[i].blockId);

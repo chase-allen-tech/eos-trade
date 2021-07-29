@@ -10,12 +10,12 @@ app.use(bodyParser.json());
 
 const port = process.env.PORT || 8080;
 
-app.get('/createAccount', createAccount);
-app.get('/getAccount', getAccount);
-app.get('/getBalance', getBalance);
-app.get('/adminSend', adminSend);
-app.get('/userSend', userSend);
-app.get('/depositAddress', depositAddress);
+// app.get('/createAccount', createAccount);
+app.post('/getAccount', getAccount);
+app.post('/getBalance', getBalance);
+app.post('/adminSend', adminSend);
+app.post('/userSend', userSend);
+app.post('/depositAddress', depositAddress);
 app.get('/test', test);
 
 app.listen(port, function() {

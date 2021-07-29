@@ -1,9 +1,9 @@
 const { Api, JsonRpc } = require('eosjs');
-const Eos = require('eosjs');
+const eos = require('@cobo/eos');
 const { JsSignatureProvider } = require('eosjs/dist/eosjs-jssig');  // development only
 const fetch = require('node-fetch');
 const { TextDecoder, TextEncoder } = require('util');
-const { URL_ENDPOINT, MY_ACCOUNT_NAME, ACTIVE_PUBLIC_KEY, PRIVATE_KEY } = require('../setting');
+const { URL_ENDPOINT, MY_ACCOUNT_NAME, PRIVATE_KEY } = require('../setting');
 const { structCreateAccount, structTransfer } = require('./struct');
 const mysqlPromise = require('mysql2/promise');
 const config = require('../config');
@@ -43,7 +43,7 @@ exports.watchMyAccount = async (req, res) => {
 			if (action.name = 'transfer' && action.data.to == MY_ACCOUNT_NAME) {
 				let txStatus = transaction.status;
 				let txId = transaction.trx.id;
-				result.push({txId: txId, txStatus: txStatus, blockId: info.last_irreversible_block_num });
+				result.push({ txId: txId, txStatus: txStatus, blockId: info.last_irreversible_block_num });
 			}
 		}
 	}
@@ -51,120 +51,134 @@ exports.watchMyAccount = async (req, res) => {
 }
 
 exports.test = async (req, res) => {
-	const txId = '821458dba3e8d75253d43b8b4f95804d9de766250ec7d815d15492dc62cf6910';
-	const blockId = '90594660';
-	let result = await rpc.history_get_transaction(txId, blockId);
+	let bb = await rpc.get_currency_balance('eosio.token', 'adminadmin11', 'EOS');
+	console.log(bb);
+}
 
-	console.log('[blockId]', result);
-	res.json(result);
+const getAccountNameFromId = async id => {
+	let [rows, fields] = await pool.query("SELECT name FROM eosAddresses WHERE `userId` = ?", [id]);
+	if (rows.length) {
+		return rows[0].name;
+	} else {
+		return null;
+	}
+}
+
+const getPrivateKeyFromId = async id => {
+	let [rows, fields] = await pool.query("SELECT addressHex FROM eosAddresses WHERE `userId` = ?", [id]);
+	if (rows.length) {
+		return rows[0].addressHex;
+	} else {
+		return null;
+	}
+}
+
+const makeRandomName = length => {
+	let result = '';
+	let characters = 'abcdefghijklmnopqrstuvw12345';
+	let len = characters.length;
+	for(let i = 0; i < length; i ++) {
+		result += characters.charAt(Math.floor(Math.random() * len));
+	}
+	return result;
 }
 
 exports.depositAddress = async (req, res) => {
-	const { accountName } = req.body;
+	const { userId } = req.body;
+	// const userId = 100;
 
 	let result = '';
 	let rows_tmp = [];
 	try {
-		let [rows, fields] = await pool.query("SELECT * FROM eosAddresses WHERE `address` = ?", [accountName]);
-		rows_tmp = rows;
+		let name = await getAccountNameFromId(userId);
+		if (!name) {
+
+			// Create new wallet for this account user
+			let ww = eos.fromMasterSeed(userId.toString());
+			let prk = ww.getPrivateKey(); // 5JNwxtMbvKdpcNTvtERprt25rKC51r25krGX2fVusBgU9W22QkJ
+			let puk = ww.getPublicKey();  // EOS6DMCsrk8gppwQ9mS8BsdEKVrvmSDsyqDqH7fnsQm5faQDYMwva
+
+			// Create random account
+			const random_user = makeRandomName(12);
+			await api.transact(structCreateAccount(MY_ACCOUNT_NAME, random_user, puk), { blocksBehind: 3, expireSeconds: 30, });
+
+			result = await pool.query('INSERT IGNORE INTO eosAddresses (name, address, addressHex, userId) VALUES (?, ?, ?, ?)', [random_user, puk, prk, userId]);
+		} else {
+			result = name;
+		}
+		res.send({ status: true, message: result });
 	} catch (err) {
 		console.log(err);
+		res.send({ status: 'false', message: 'Error Occured' });
 	}
-	console.log('[rows]', rows_tmp);
-	if (rows_tmp.length == 0) {
-		try {
-			await pool.query('INSERT IGNORE INTO eosAddresses (address, userId) VALUES (?, ?, ?)', [accountName, accountName]);
-		} catch (err) {
-			console.log(err);
-		}
-		result = accountName;
-	} else {
-		result = rows_tmp[0];
-	}
-
-	res.send({
-		status: true,
-		address: result
-	});
 }
 
 exports.userSend = async (req, res) => {
-	const { sender, receiver, quantity } = req.body;
-
-	// const sender = 'admin1234512';
-	// const receiver = 'bob123451234';
-	// const quantity = '1.0000 EOS';
+	const { senderId, receiverId, quantity } = req.body;
 
 	try {
-		let [rows, fields] = await pool.query("SELECT userId from eosAddresses WHERE `address` = ?", [sender]);
-		if(!rows.length) {
-			res.send({ status: 'false', message: 'Sender address not in db' });
-		} else {
-			await api.transact(structTransfer(sender, receiver, quantity), { blocksBehind: 3, expireSeconds: 30, });
-			res.send({ status: 'true', message: 'Success'});
-		}
+
+		let prk = await getPrivateKeyFromId(senderId);
+		let sender = await getAccountNameFromId(senderId);
+		let receiver = await getAccountNameFromId(receiverId);
+
+		if (!prk || !sender || !receiver) return res.send({ status: 'false', message: 'Sender address not in db' });
+
+		let signatureProvider = new JsSignatureProvider([prk]);
+		let rpc = new JsonRpc(URL_ENDPOINT, { fetch }); //required to read blockchain state
+		let api1 = new Api({ rpc, signatureProvider, textDecoder: new TextDecoder(), textEncoder: new TextEncoder() });
+
+		let result = await api1.transact(structTransfer(sender, receiver, quantity), { blocksBehind: 3, expireSeconds: 30, });
+
+		res.send({ status: 'true', message: result.transaction_id });
 	} catch (err) {
 		console.log(err);
-		res.send({status: 'false', message: 'Error Occured'});
+		res.send({ status: 'false', message: 'Error Occured' });
 	}
 }
 
 exports.adminSend = async (req, res) => {
-	const { receiver, quantity } = req.body;
-
-	// const receiver = 'bob123451234';
-	// const quantity = '1.0000 EOS';
+	const { receiverId, quantity } = req.body;
 
 	try {
-		let result = await api.transact(structTransfer(MY_ACCOUNT_NAME, receiver, quantity), { blocksBehind: 3, expireSeconds: 30, });
-		console.log('[res]', result.transaction_id, result.processed.block_num);
+		let receiverName = await getAccountNameFromId(receiverId);
+		if (!receiverName) return res.send({ status: 'false', message: 'There is no data in DB' });
+
+		// Send transaction
+		let result = await api.transact(structTransfer(MY_ACCOUNT_NAME, receiverName, quantity), { blocksBehind: 3, expireSeconds: 30, });
 
 		// Save to DB
-		await pool.query('INSERT INTO eosTransactions (txId, blockId, status, receiver, amount, type, sender) VALUES (?, ?, ?, ?, ?, ?, ?', [result.transaction_id, result.processed.block_num, result.processed.receipt.status, receiver, quantity, MY_ACCOUNT_NAME]);
-		res.send({status: 'true', message: 'Success', transactionId: result.transaction_id, blockId: result.processed.block_num });
-	} catch(err) {
+		await pool.query('INSERT INTO eosTransactions (txid, blockid, status, toAddress, amount, type, fromAddress) VALUES (?, ?, ?, ?, ?, ?, ?)', [result.transaction_id, result.processed.block_num, result.processed.receipt.status, receiverName, quantity, 'pending', MY_ACCOUNT_NAME]);
+		res.send({ status: 'true', message: 'Success', transactionId: result.transaction_id, blockId: result.processed.block_num });
+	} catch (err) {
 		console.log(err);
-		res.send({status: 'false', message: 'Error Occured'});
+		res.send({ status: 'false', message: 'Error Occured' });
 	}
 }
 
 exports.getBalance = async (req, res) => {
-	const { accountName } = req.body;
-	// const accountName = 'lioninjungle';
+	const { userId } = req.body;
 	try {
-		let balance = await rpc.get_currency_balance('eosio.token', accountName, 'EOS');
+		let name = await getAccountNameFromId(userId);
+		let balance = await rpc.get_currency_balance('eosio.token', name, 'EOS');
 		if (Array.isArray(balance)) balance = balance[0];
 		res.send({ status: 'true', message: balance });
 	} catch (err) {
 		console.log(err);
-		res.send({status: 'false', message: 'Error Occured'});
+		res.send({ status: 'false', message: 'Error Occured' });
 	}
-	
 }
 
 exports.getAccount = async (req, res) => {
-	const { accountName } = req.body;
-	// const accountName = 'bob123451234'; // Test account 
+	const { userId } = req.body;
 
 	try {
-		let account = await rpc.get_account(accountName)
+		let name = await getAccountNameFromId(userId);
+		let account = await rpc.get_account(name)
 		res.send({ status: 'true', message: account });
 	} catch (err) {
 		console.log(err);
-		res.send({status: 'false', message: 'Error Occured'});
-	}
-}
-
-exports.createAccount = async (req, res) => {
-	const { newAccount } = req.body;
-	// let newAccount = 'bob123451235';
-
-	try {
-		let result = await api.transact(structCreateAccount(MY_ACCOUNT_NAME, newAccount, ACTIVE_PUBLIC_KEY), { blocksBehind: 3, expireSeconds: 30, });
-		res.send({ status: 'true', message: result });
-	} catch (err) {
-		console.log(err);
-		res.send({status: 'false', message: 'Error Occured'});
+		res.send({ status: 'false', message: 'Error Occured' });
 	}
 }
 
