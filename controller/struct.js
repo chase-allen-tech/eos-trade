@@ -1,3 +1,21 @@
+exports.structBuyRam = (payer, receiver, size) => {
+	return {
+		actions: [{
+			account: 'eosio',
+			name: 'buyrambytes',
+			authorization: [{
+				actor: payer,
+				permission: 'active'
+			}],
+			data: {
+				payer: payer,
+				receiver: receiver,
+				bytes: size
+			}
+		}]
+	}
+}
+
 exports.structTransfer = (sender, receiver, quantity) => {
 	return {
 		actions: [{
