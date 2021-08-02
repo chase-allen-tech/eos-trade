@@ -182,6 +182,9 @@ exports.userSend = async (req, res) => {
 
 		let result = await api1.transact(structTransfer(sender, receiver, quantity), { blocksBehind: 3, expireSeconds: 30, });
 
+		// Save to DB
+		await pool.query('INSERT INTO eosTransactions (txid, blockid, status, toAddress, amount, type, fromAddress) VALUES (?, ?, ?, ?, ?, ?, ?)', [result.transaction_id, result.processed.block_num, result.processed.receipt.status, receiver, quantity, 'pending', sender]);
+
 		res.send({ status: 'true', message: result.transaction_id });
 	} catch (err) {
 		console.log(err);
