@@ -27,27 +27,37 @@ const pool = mysqlPromise.createPool({
 exports.watchMyAccount = async (req, res) => {
 	// const txId = '821458dba3e8d75253d43b8b4f95804d9de766250ec7d815d15492dc62cf6910';
 	// const blockId = '90594660';
-
-	let info = await rpc.get_info();
-	let block = await rpc.get_block(info.last_irreversible_block_num);
-	transactions = block.transactions[0].trx.transaction.actions;
-
-	let result = [];
-	for (let transaction of block.transactions) {
-		let trx = transaction.trx.transaction;
-		if (!Object.keys(trx).length) continue;
-		for (let action of trx.actions) {
-			console.log(action, transaction.status, transaction.trx.id);
-
-			// If someone send EOS to me
-			if (action.name = 'transfer' && action.data.to == MY_ACCOUNT_NAME) {
-				let txStatus = transaction.status;
-				let txId = transaction.trx.id;
-				result.push({ txId: txId, txStatus: txStatus, blockId: info.last_irreversible_block_num });
+	try {
+		let info = await rpc.get_info();
+		let block = await rpc.get_block(info.last_irreversible_block_num);
+		console.log('block', block);
+		if(block.transactions.length) {
+			transactions = block.transactions[0].trx.transaction.actions;
+	
+			let result = [];
+			console.log('[tr]', block.transactions);
+			for (let transaction of block.transactions) {
+				let trx = transaction.trx.transaction;
+				if (!Object.keys(trx).length) continue;
+				for (let action of trx.actions) {
+					console.log(action, transaction.status, transaction.trx.id);
+		
+					// If someone send EOS to me
+					console.log('[action]', action.data);
+					if (action.name = 'transfer' && action.data.to == MY_ACCOUNT_NAME) {
+						let txStatus = transaction.status;
+						let txId = transaction.trx.id;
+						result.push({ txId: txId, txStatus: txStatus, blockId: info.last_irreversible_block_num });
+					}
+				}
 			}
+			res.json(result);
+		} else {
+			res.send({ status: 'false', message: 'Current Transaction Not Found!' });
 		}
+	} catch(err) {
+		res.send({ status: 'false', message: 'Error Occured!'});
 	}
-	res.json(result);
 }
 
 exports.test = async (req, res) => {
@@ -174,11 +184,13 @@ exports.userSend = async (req, res) => {
 		let sender = await getAccountNameFromId(senderId);
 		let receiver = await getAccountNameFromId(receiverId);
 
-		if (!prk || !sender || !receiver) return res.send({ status: 'false', message: 'Sender address not in db' });
+		if (!prk || !sender || !receiver) return res.send({ status: 'false', message: 'Sender/Receiver address not in db' });
 
 		let signatureProvider = new JsSignatureProvider([prk]);
 		let rpc = new JsonRpc(URL_ENDPOINT, { fetch }); //required to read blockchain state
 		let api1 = new Api({ rpc, signatureProvider, textDecoder: new TextDecoder(), textEncoder: new TextEncoder() });
+
+		console.log(sender, receiver, quantity);
 
 		let result = await api1.transact(structTransfer(sender, receiver, quantity), { blocksBehind: 3, expireSeconds: 30, });
 

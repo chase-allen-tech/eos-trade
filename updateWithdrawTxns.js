@@ -1,8 +1,13 @@
-import {default as cron} from 'node-cron';
-import mysqlPromise from 'mysql2/promise';
+// import {default as cron} from 'node-cron';
+const { JsonRpc } = require('eosjs');
+const fetch = require('node-fetch');
+const cron = require('node-cron');
+const mysqlPromise = require('mysql2/promise');
+const config = require('./config');
+const { PRIVATE_KEY, URL_ENDPOINT } = require('./setting');
 
-import config from './config';
-
+// const signatureProvider = new JsSignatureProvider([PRIVATE_KEY]);
+const rpc = new JsonRpc(URL_ENDPOINT, { fetch }); //required to read blockchain state
 
 require('array-foreach-async');
 const pool = mysqlPromise.createPool({
@@ -19,18 +24,25 @@ const pool = mysqlPromise.createPool({
 let isRunning = false;
 
 cron.schedule("* * * * *", async () => {
+    console.log('[cron entered]');
     if(!isRunning) {
         isRunning = true;
         try {
-            let [rows, fields] = await pool.query("SELECT txid, blockid FROM eosTransactions WHERE `status` = ?", ['pending']);
+            let [rows, fields] = await pool.query("SELECT txid, blockid FROM eosTransactions WHERE `status` = ?", ['executed']);
             for(let i = 0; i < rows.length; i ++) {
                 try {
-                    let tx = await rpc.history_get_transaction(rows[i].txId, rows[i].blockId);
-                    if(tx) {
-                        await pool.query('UPDATE eosTransactions SET status = "Completed", result = ? WHERE txId = ?', [tx.trx.receipt.status, rows[i].txId])
+                    let tx = await rpc.history_get_transaction(rows[i].txid, rows[i].blockid);
+                    if(tx.trx.receipt.status != 'executed') {
+                        await pool.query('UPDATE eosTransactions SET `status` = "executed", `result` = ? WHERE `txid` = ?', [tx.trx.receipt.status, rows[i].txid])
                     }
-                } catch(err) { console.log(err)}
+                } catch(err) { 
+                    await pool.query('UPDATE eosTransactions SET `status` = "ERROR", `result` = ? WHERE `txid` = ?', ["ERROR", rows[i].txid])
+                }
             }
-        } catch (err) {console.log(err);}
+            isRunning = false;
+        } catch (err) {
+            console.log(err);
+            isRunning = false;
+        }
     }
 })
