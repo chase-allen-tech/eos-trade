@@ -4,7 +4,7 @@ const { JsSignatureProvider } = require('eosjs/dist/eosjs-jssig');  // developme
 const fetch = require('node-fetch');
 const { TextDecoder, TextEncoder } = require('util');
 const { URL_ENDPOINT, MY_ACCOUNT_NAME, PRIVATE_KEY } = require('../setting');
-const { structCreateAccount, structTransfer, structBuyRam } = require('./struct');
+const { structCreateAccount, structTransfer, structBuyRam, structBuyCPU } = require('./struct');
 const mysqlPromise = require('mysql2/promise');
 const config = require('../config');
 
@@ -109,7 +109,33 @@ exports.depositAddress = async (req, res) => {
 		res.send({ status: true, message: result });
 	} catch (err) {
 		console.log(err);
-		res.send({ status: 'false', message: 'Error Occured' });
+		res.send({ status: 'false', message: err.json });
+	}
+}
+
+exports.buyNetCPU = async (req, res) => {
+	const { payerId, receiverId, netQuantity, cpuQuantity } = req.body;
+
+	try {
+
+		let prk = await getPrivateKeyFromId(payerId);
+		let payer = await getAccountNameFromId(payerId);
+		let receiver = await getAccountNameFromId(receiverId);
+
+		if (!prk || !payer || !receiver) return res.send({ status: 'false', message: 'Payer address not in db' });
+
+		let signatureProvider = new JsSignatureProvider([prk]);
+		let rpc = new JsonRpc(URL_ENDPOINT, { fetch }); //required to read blockchain state
+		let api1 = new Api({ rpc, signatureProvider, textDecoder: new TextDecoder(), textEncoder: new TextEncoder() });
+
+		console.log('eeeee');
+
+		let result = await api1.transact(structBuyCPU(payer, receiver, netQuantity, cpuQuantity), { blocksBehind: 3, expireSeconds: 30, });
+
+		res.send({ status: 'true', message: result.transaction_id });
+	} catch (err) {
+		console.log(err);
+		res.send({ status: 'false', message: err.json });
 	}
 }
 
@@ -135,7 +161,7 @@ exports.buyRamBytes = async (req, res) => {
 		res.send({ status: 'true', message: result.transaction_id });
 	} catch (err) {
 		console.log(err);
-		res.send({ status: 'false', message: 'Error Occured' });
+		res.send({ status: 'false', message: err.json });
 	}
 }
 
@@ -159,7 +185,7 @@ exports.userSend = async (req, res) => {
 		res.send({ status: 'true', message: result.transaction_id });
 	} catch (err) {
 		console.log(err);
-		res.send({ status: 'false', message: 'Error Occured' });
+		res.send({ status: 'false', message: err.json });
 	}
 }
 
@@ -178,7 +204,7 @@ exports.adminSend = async (req, res) => {
 		res.send({ status: 'true', message: 'Success', transactionId: result.transaction_id, blockId: result.processed.block_num });
 	} catch (err) {
 		console.log(err);
-		res.send({ status: 'false', message: 'Error Occured' });
+		res.send({ status: 'false', message: err.json });
 	}
 }
 
@@ -191,7 +217,7 @@ exports.getBalance = async (req, res) => {
 		res.send({ status: 'true', message: balance });
 	} catch (err) {
 		console.log(err);
-		res.send({ status: 'false', message: 'Error Occured' });
+		res.send({ status: 'false', message: err.json });
 	}
 }
 
@@ -204,7 +230,7 @@ exports.getAccount = async (req, res) => {
 		res.send({ status: 'true', message: account });
 	} catch (err) {
 		console.log(err);
-		res.send({ status: 'false', message: 'Error Occured' });
+		res.send({ status: 'false', message: err.json });
 	}
 }
 

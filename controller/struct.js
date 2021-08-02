@@ -1,3 +1,24 @@
+exports.structBuyCPU = (payer, receiver, netQuantity, cpuQuantity) => {
+	return {
+		actions: [{
+			account: 'eosio',
+			name: 'delegatebw',
+			authorization: [{
+				actor: payer,
+				permission: 'active',
+			}],
+			data: {
+				from: payer,
+				receiver: receiver,
+				stake_net_quantity: netQuantity,
+				stake_cpu_quantity: cpuQuantity,
+				transfer: false,
+			}
+		}]
+	}
+}
+
+
 exports.structBuyRam = (payer, receiver, size) => {
 	return {
 		actions: [{
